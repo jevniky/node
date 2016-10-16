@@ -4,12 +4,14 @@
 #define ATMEGA 1
 #define ESP8266 0
 
-#define MICROCONTROLLER ATMEGA // Set the used uC here
+#define MICROCONTROLLER ESP8266 // Set the used uC here
 #define WRITE_FUNCTIONALITY 1 // Set to 1 to include EEPROME write
 
 #define SSID_ADDR_START 0
 #define PASS_ADDR_START 50
 #define END_OF_EEPROM_READ 0
+
+#define SSID_PASS_SIZE strlen(pass_write) + strlen(ssid_write) + 1
 
 int eeprom_address = SSID_ADDR_START;
 int eeprom_read_ssid = !END_OF_EEPROM_READ;
@@ -18,11 +20,8 @@ int eeprom_read_pass = !END_OF_EEPROM_READ;
 char ssid[50] = ""; // array to store the ssid
 char pass[50] = ""; // array to store the password
 
-char ssid_temp[] = "***";
+char ssid_temp[] = "**";
 char pass_temp[] = "***";
-
-//void eeprom_write_ssid_pass(char ssid_write[], char pass_write);
-//void eeprom_clear (void);
 
 void setup() {
 #if MICROCONTROLLER == ESP8266 // If the uC is ESP, there is need to call EEPROM.begin()
@@ -64,11 +63,9 @@ void setup() {
    eeprom_address = eeprom_address + 1; // advance to the next address of the EEPROM
    delay(100);
  }
- #if DEBUG
  Serial.print("PASS: [");
  Serial.print(pass);
  Serial.println("]");
- #endif
  eeprom_address = SSID_ADDR_START; // Set back the address to the start
  //=======================================END PASS READ=======================================//
 }
@@ -87,8 +84,9 @@ void loop()
 //******************************************************************************
 void eeprom_clear(void) {
   Serial.println("Clearing EEPROM.");
-  for (int i = 0 ; i < EEPROM.length() ; i++) {
+  for (int i = 0 ; i < 512; i++) {
     EEPROM.write(i, 0);
+    Serial.print(".");
   }
   Serial.println("EEPROM cleared.");
 }
@@ -112,6 +110,7 @@ void eeprom_write_ssid_pass(char * ssid_write, char * pass_write) {
     delay(100);
   }
   Serial.println("SSID writing done.");
+  eeprom_address = eeprom_address + 1; // Make one address space between ssid and pass
 
   Serial.print("Writting PASS[");
   Serial.print(pass_write);
@@ -122,10 +121,11 @@ void eeprom_write_ssid_pass(char * ssid_write, char * pass_write) {
     Serial.println(pass_write[i]);
     EEPROM.write(eeprom_address, pass_write[i]);
     eeprom_address = eeprom_address + 1;
-    if ( strlen(pass_write) == eeprom_address ) {
+    if ( SSID_PASS_SIZE == eeprom_address ) {
       eeprom_address = 0; // reset the EEPROM address
       #if MICROCONTROLLER == ESP8266
       EEPROM.commit(); // Commit changes
+      Serial.println("Changes commited to EEPROM.");
       #endif
     }
     delay(100);
