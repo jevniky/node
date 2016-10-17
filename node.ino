@@ -1,4 +1,7 @@
 #include <EEPROM.h>
+#include <ESP8266WiFi.h>
+#include <PubSubClient.h>
+
 
 // uC type
 #define ATMEGA 1
@@ -20,8 +23,14 @@ int eeprom_read_pass = !END_OF_EEPROM_READ;
 char ssid[50] = ""; // array to store the ssid
 char pass[50] = ""; // array to store the password
 
-char ssid_temp[] = "**";
+char ssid_temp[] = "***";
 char pass_temp[] = "***";
+
+WiFiClient espClient;
+PubSubClient mqttClient(espClient);
+long lastMsg = 0;
+char msg[50];
+int value = 0;
 
 void setup() {
 #if MICROCONTROLLER == ESP8266 // If the uC is ESP, there is need to call EEPROM.begin()
@@ -30,12 +39,11 @@ void setup() {
   delay(500);
   Serial.begin(9600);
   delay(500);
+  WiFi.mode(WIFI_STA);
 //  eeprom_clear();
 //  eeprom_write_ssid_pass(ssid_temp, pass_temp);
 
-
-
-
+Serial.println("Looking for saved SSID and PASS.");
 //========================================SSID READ========================================//
   int i = 0; // array index counter
   eeprom_address = SSID_ADDR_START; // reset address for reading
@@ -48,9 +56,8 @@ void setup() {
     eeprom_address = eeprom_address + 1; // advance to the next address of the EEPROM
     delay(100);
   }
-  Serial.print("SSID: [");
-  Serial.print(ssid);
-  Serial.println("]");
+  Serial.print("SSID found: ");
+  Serial.println(ssid);
   //======================================END SSID READ======================================//
  //=========================================PASS READ=========================================//
  i = 0; // array index counter reset
@@ -63,17 +70,88 @@ void setup() {
    eeprom_address = eeprom_address + 1; // advance to the next address of the EEPROM
    delay(100);
  }
- Serial.print("PASS: [");
- Serial.print(pass);
- Serial.println("]");
+ Serial.print("PASS found: ");
+ Serial.println(pass);
  eeprom_address = SSID_ADDR_START; // Set back the address to the start
  //=======================================END PASS READ=======================================//
+
+ if ( "" != ssid ) {
+   if ( "" == pass ) {
+     Serial.println("PASS not found");
+   }
+   Serial.print("Trying to connect to '");
+   Serial.print(ssid);
+   Serial.print("' using '");
+   Serial.print(pass);
+   Serial.println("' as a password.");
+   connect_to_wifi(ssid, pass);
+ } else {
+   Serial.println("SSID not found.");
+   Serial.println("Starting AP.");
+ }
+
+ mqttClient.setServer("192.168.0.12", 1883);
+  mqttClient.setCallback(callback);
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+
+  // Switch on the LED if an 1 was received as first character
+  if ((char)payload[0] == '1') {
+    digitalWrite(BUILTIN_LED, LOW);   // Turn the LED on (Note that LOW is the voltage level
+    // but actually the LED is on; this is because
+    // it is acive low on the ESP-01)
+  } else {
+    digitalWrite(BUILTIN_LED, HIGH);  // Turn the LED off by making the voltage HIGH
+  }
+
+}
+
+void reconnect() {
+  // Loop until we're reconnected
+  while (!mqttClient.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    if (mqttClient.connect("ESP8266Client")) {
+      Serial.println("connected");
+      // Once connected, publish an announcement...
+      mqttClient.publish("outTopic", "hello world");
+      // ... and resubscribe
+      mqttClient.subscribe("inTopic");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(mqttClient.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
 }
 
 void loop()
 {
 
-  // read a byte from the current address of the EEPROM
+  if (!mqttClient.connected()) {
+    reconnect();
+  }
+  mqttClient.loop();
+
+  long now = millis();
+  if (now - lastMsg > 2000) {
+    lastMsg = now;
+    ++value;
+    snprintf (msg, 75, "hello world #%ld", value);
+    Serial.print("Publish message: ");
+    Serial.println(msg);
+    mqttClient.publish("outTopic", msg);
+  }
 
 }
 
@@ -88,6 +166,11 @@ void eeprom_clear(void) {
     EEPROM.write(i, 0);
     Serial.print(".");
   }
+  #if MICROCONTROLLER == ESP8266
+      EEPROM.commit(); // Commit changes
+      Serial.println();
+      Serial.println("Changes commited to EEPROM.");
+      #endif
   Serial.println("EEPROM cleared.");
 }
 
@@ -131,4 +214,20 @@ void eeprom_write_ssid_pass(char * ssid_write, char * pass_write) {
     delay(100);
   }
   Serial.println("PASS writing done.");
+}
+
+void connect_to_wifi(char * ssid, char * pass) {
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, pass);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
 }
