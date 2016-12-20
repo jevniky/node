@@ -68,6 +68,18 @@ void setup() {
  Serial.println("]");
  eeprom_address = SSID_ADDR_START; // Set back the address to the start
  //=======================================END PASS READ=======================================//
+
+if ("" == ssid) {
+  Serial.println("SSID empty");
+} else {
+  Serial.println(ssid);
+}
+if ("" == pass) {
+  Serial.println("PASS empty");
+} else {
+  Serial.println(pass);
+}
+
 }
 
 void loop()
