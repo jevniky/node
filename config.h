@@ -22,13 +22,16 @@
 
 ESP8266WebServer server(80); // create a server object fot AP mode.
 
-char * ssid;
-char * pass;
+int handleClientFlag = 1;
+
+char ssid[32];
+char pass[32];
 char buff[32] = ""; // buffer to store values read from eeprom
 
-int wifiTimeout = 0; // The timeout for wifi connection.
+int wifiTimeoutConn = 0; // The timeout for wifi connection.
+int wifiTimeoutEvent = 0; // The timeout for wifi connection inside wifi event: conn lost.
 
-char* htmlBody =  
+char* htmlBody =
 "<!DOCTYPE HTML>"
 "<html>"
 "<head>"
@@ -47,7 +50,7 @@ char* htmlBody =
 "</body>"
 "</html>";
 
-char* htmlBodyThx =  
+char* htmlBodyThx =
 "<!DOCTYPE HTML>"
 "<html>"
 "<head>"
