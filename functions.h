@@ -1,6 +1,6 @@
 void wifi_connect(char *ssid_conn, char *pass_conn);
 void wifi_event(WiFiEvent_t event);
-void handleRoot(void);
+void handle_root(void);
 void setup_access_point(void);
 void eeprom_read(int start_address, char readBuff[]);
 void eeprom_write(char *writeData, int address);
@@ -12,6 +12,13 @@ void led_wifi_off(void);
 void led_ap_on(void);
 void led_ap_off(void);
 
+//******************************************************************************
+// WIFI CONNECT
+// Name: wifi_connect()
+// Desc: Function for wifi connection
+// Input: char *ssid_conn, char *pass_conn)
+// Return: void
+//******************************************************************************
 void wifi_connect(char *ssid_conn, char *pass_conn)
 {
   WiFi.mode(WIFI_STA);
@@ -42,7 +49,13 @@ void wifi_connect(char *ssid_conn, char *pass_conn)
     }
   } // while (WiFi.status() != WL_CONNECTED)
 }
-
+//******************************************************************************
+// WIFI EVENT
+// Name: wifi_event()
+// Desc: Handles wifi events
+// Input: WiFiEvent_t event
+// Return: void
+//******************************************************************************
 void wifi_event(WiFiEvent_t event)
 {
   Serial.printf("[WiFi-event] event: %d\n", event);
@@ -84,8 +97,14 @@ void wifi_event(WiFiEvent_t event)
       break;
   }
 }
-
-void handleRoot(void)
+//******************************************************************************
+// HANDLE ROOT
+// Name: handle_root()
+// Desc: Handles incomming data from web page
+// Input: void
+// Return: void
+//******************************************************************************
+void handle_root(void)
 {
   if (server.hasArg("ssid"))
   {
@@ -149,7 +168,7 @@ void setup_access_point(void)
   Serial.print("visit: ");
   Serial.println(apip);
 #endif
-  server.on("/", handleRoot);
+  server.on("/", handle_root);
   server.begin();
 #if DEBUG
   Serial.println(F("Server started"));

@@ -18,9 +18,9 @@ void setup()
   eeprom_read(SSID_ADDR_START, ssid);
   if ('\0' != ssid) // If the ssid is NOT empty
   {
-    // Look for PASS in the EEPROM
+    // Look for PASS in the EEPROM if the SSID was found
     eeprom_read(PASS_ADDR_START, pass);
-    if ('\0' != pass) // If the ssid is NOT empty
+    if ('\0' != pass) // If the pass is NOT empty
     {
 #if DEBUG
       Serial.print(F("\nSSID: ["));
@@ -35,7 +35,7 @@ void setup()
 
   if ('\0' != ssid) // if the ssid is not empty
   {
-    // attempt to connect to Wifi network:
+    // attempt to connect to Wifi network.
     wifi_connect(ssid, pass);
   }
 
@@ -59,6 +59,7 @@ void loop()
   if ( WL_CONNECTED ==  WiFi.status() )
   {
     Serial.println("Simulate loop :P...");
+    delay(1000);
   }
-  
+
 }
