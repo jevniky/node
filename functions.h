@@ -1,16 +1,70 @@
-void wifi_connect(char *ssid_conn, char *pass_conn);
+void mqtt_connect(void);
+void callback(char* topic, byte* payload, unsigned int length);
+uint8_t setup_mqtt(void);
+uint8_t wifi_connect(void);
 void wifi_event(WiFiEvent_t event);
 void handle_root(void);
 void setup_access_point(void);
 void eeprom_read(int start_address, char readBuff[]);
 void eeprom_write(char *writeData, int address);
-void eeprom_clear(void);
+void eeprom_clear(uint8_t from, uint8_t to);
 void hardware_init(void);
 void buffer_clear(char clearBuff[], int buffSize);
 void led_wifi_on(void);
 void led_wifi_off(void);
 void led_ap_on(void);
 void led_ap_off(void);
+
+void mqtt_connect(void)
+{
+  // Loop until we're reconnected
+  while (!mqttClient.connected())
+  {
+    #if DEBUG
+    Serial.print("Attempting MQTT connection...");
+    #endif
+    // Attempt to connect
+    if (client.connect(DeviceNameChar))
+    {
+      #if DEBUG
+      Serial.println("connected");
+      #endif
+      // Once connected, publish an announcement...
+      client.publish("outTopic","hello world");
+      // ... and resubscribe
+      client.subscribe("inTopic");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  for (int i=0;i<length;i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+}
+
+uint8_t setup_mqtt(void)
+{
+  eeprom_read(BROKER_IP_START, broker);
+  if ( '\0' != broker ) {
+    mqttClient.setServer(broker, MQTT_BROKER_PORT);
+    //    mqttClient.setCallback(callback);
+#if DEBUG
+    Serial.print("MQTT broker set up. IP: ");
+    Serial.println(broker);
+#endif
+  }
+}
 
 //******************************************************************************
 // WIFI CONNECT
@@ -19,36 +73,37 @@ void led_ap_off(void);
 // Input: char *ssid_conn, char *pass_conn)
 // Return: void
 //******************************************************************************
-void wifi_connect(char *ssid_conn, char *pass_conn)
+uint8_t wifi_connect(void)
 {
-  WiFi.mode(WIFI_STA);
   // delete old config
   WiFi.disconnect(true);
   delay(1000);
-  WiFi.onEvent(wifi_event);
-  WiFi.begin(ssid_conn, pass_conn);
-  while (WiFi.status() != WL_CONNECTED) {
+  eeprom_read(SSID_ADDR_START, ssid);
+  if ('\0' != ssid) // If the ssid is NOT empty
+  {
+    // Look for PASS in the EEPROM
+    eeprom_read(PASS_ADDR_START, pass);
+    if ('\0' != pass) // If the pass is NOT empty
+    {
 #if DEBUG
-    Serial.print(F("."));
+      Serial.print(F("\nSSID: ["));
+      Serial.print(ssid);
+      Serial.print(F("]\n"));
+      Serial.print(F("PASS: ["));
+      Serial.print(pass);
+      Serial.print(F("]\n"));
 #endif
-    digitalWrite(GREEN_LED, !digitalRead(GREEN_LED));
-    delay(500);
-    if ( WIFI_TIMEOUT > wifiTimeoutConn ) {
-      wifiTimeoutConn++;
-              #if DEBUG
-        Serial.print(F("wifiTimeout (in wifi_connect): "));
-        Serial.println(wifiTimeoutConn);
-#endif
-    } else {
-      wifiTimeoutConn = 0; // Clear wifi timeout for next use
-#if DEBUG
-      Serial.println(F("Time out. Failed to connect."));
-#endif
-      led_wifi_off();
-      break; // break out of this loop and continue with AP setup
     }
-  } // while (WiFi.status() != WL_CONNECTED)
+    // attempt to connect to Wifi network.
+    WiFi.begin(ssid, pass);
+//    while (WiFi.status() != WL_CONNECTED)
+//    {
+//      digitalWrite(GREEN_LED, !digitalRead(GREEN_LED));
+//      delay(200);
+//    } // while (WiFi.status() != WL_CONNECTED)
+  } // if ('\0' != ssid)
 }
+
 //******************************************************************************
 // WIFI EVENT
 // Name: wifi_event()
@@ -58,42 +113,58 @@ void wifi_connect(char *ssid_conn, char *pass_conn)
 //******************************************************************************
 void wifi_event(WiFiEvent_t event)
 {
-  Serial.printf("[WiFi-event] event: %d\n", event);
   switch (event) {
-    case WIFI_EVENT_STAMODE_GOT_IP:
+    case WIFI_EVENT_STAMODE_CONNECTED: // event = 0
 #if DEBUG
-      Serial.println("WiFi connected");
-      Serial.println("IP address: ");
+      Serial.println(F("WiFi connected"));
+#endif
+      break;
+    case WIFI_EVENT_STAMODE_DISCONNECTED: // event = 1
+#if DEBUG
+      // Serial.println(F("WiFi lost connection"));
+#endif
+      led_wifi_off();
+      break;
+    case WIFI_EVENT_STAMODE_AUTHMODE_CHANGE: // event = 2
+#if DEBUG
+      Serial.println(F("WIFI_EVENT_STAMODE_AUTHMODE_CHANGE"));
+#endif
+      break;
+    case WIFI_EVENT_STAMODE_GOT_IP: // event = 3
+#if DEBUG
+      Serial.println(F("IP address: "));
       Serial.println(WiFi.localIP());
 #endif
       led_wifi_on();
-      handleClientFlag = 0; // So the client handle loop DOESNT start
       wifiTimeoutEvent = 0; // Clear wifi timeout for next use
       break;
-    case WIFI_EVENT_STAMODE_DISCONNECTED:
+    case WIFI_EVENT_STAMODE_DHCP_TIMEOUT: // event = 4
 #if DEBUG
-      Serial.println("WiFi lost connection");
+      Serial.println(F("WIFI_EVENT_STAMODE_DHCP_TIMEOUT"));
 #endif
-      if (WIFI_TIMEOUT > wifiTimeoutEvent)
-      {
-        wifiTimeoutEvent++;
-        #if DEBUG
-        Serial.print(F("wifiTimeout (in wifi_event): "));
-        Serial.println(wifiTimeoutEvent);
-#endif
-      }
-      else {
-        wifiTimeoutEvent = 0; // Clear wifi timeout for next use
-        handleClientFlag = 1; // So the client handle loop starts
+      break;
+    case WIFI_EVENT_SOFTAPMODE_STACONNECTED: // event = 5
 #if DEBUG
-        Serial.println(F("Time out. Failed to connect in wifi_event."));
+      Serial.println(F("WIFI_EVENT_SOFTAPMODE_STACONNECTED"));
 #endif
+      led_ap_on();
+      break;
+    case WIFI_EVENT_SOFTAPMODE_STADISCONNECTED: // event = 6
 #if DEBUG
-        Serial.print(F("\nRestarting the node in wifi_event.\n"));
+      Serial.println(F("WIFI_EVENT_SOFTAPMODE_STADISCONNECTED"));
 #endif
-        ESP.restart\();
-      }
-      digitalWrite(GREEN_LED, !digitalRead(GREEN_LED));
+      led_ap_off();
+      break;
+    case WIFI_EVENT_SOFTAPMODE_PROBEREQRECVED: // event = 7
+#if DEBUG
+      // Serial.println(F("WIFI_EVENT_SOFTAPMODE_PROBEREQRECVED"));
+#endif
+      break;
+    default:
+#if DEBUG
+      Serial.print(F("Other event: "));
+      Serial.println(event);
+#endif
       break;
   }
 }
@@ -106,22 +177,20 @@ void wifi_event(WiFiEvent_t event)
 //******************************************************************************
 void handle_root(void)
 {
-  if (server.hasArg("ssid"))
+  if ( server.hasArg("wifi_data") )
   {
-    String ssid_web = server.arg("ssid");
-    ssid_web.toCharArray(ssid, 32);
+    if (server.hasArg("ssid"))
+    {
+      String ssid_web = server.arg("ssid");
+      ssid_web.toCharArray(ssid, 32);
 #if DEBUG
-    Serial.print(F("SSID WEB ["));
-    Serial.print(ssid);
-    Serial.println(F("]"));
+      Serial.print(F("SSID WEB ["));
+      Serial.print(ssid);
+      Serial.println(F("]"));
 #endif
-    eeprom_clear();
-#if DEBUG
-    Serial.print(F("SSID to EEPROM ["));
-    Serial.print(ssid);
-    Serial.println(F("]"));
-#endif
-    eeprom_write(ssid, SSID_ADDR_START);
+      eeprom_clear(SSID_ADDR_START, SSID_ADDR_STOP);
+      eeprom_write(ssid, SSID_ADDR_START);
+    } // if (server.hasArg("ssid"))
     if (server.hasArg("pass"))
     {
       String pass_web = server.arg("pass");
@@ -131,19 +200,31 @@ void handle_root(void)
       Serial.print(pass);
       Serial.println(F("]"));
 #endif
-      server.send(200, "text/html", htmlBodyThx);
-#if DEBUG
-      Serial.print(F("PASS to EEPROM ["));
-      Serial.print(pass);
-      Serial.println(F("]"));
-#endif
+      eeprom_clear(PASS_ADDR_START, PASS_ADDR_STOP);
       eeprom_write(pass, PASS_ADDR_START);
-    }
+    } // if (server.hasArg("pass"))
+    server.send(200, "text/html", htmlBodyThx);
 #if DEBUG
     Serial.print(F("\nAttempting to connect again.\n"));
 #endif
-    wifi_connect(ssid, pass);
-  }
+    wifi_connect();
+  } // if ( server.hasArg("wifi_data") )
+  if ( server.hasArg("broker_data") )
+  {
+    if (server.hasArg("broker"))
+    {
+      String broker_web = server.arg("broker");
+      broker_web.toCharArray(brokerChar, 16);
+      eeprom_clear(BROKER_IP_START, BROKER_IP_STOP);
+#if DEBUG
+      Serial.print(F("Broker from web: "));
+      Serial.println(brokerChar);
+#endif
+      eeprom_write(brokerChar, BROKER_IP_START);
+      setup_mqtt();
+    } // if (server.hasArg("broker"))
+    server.send(200, "text/html", htmlBodyThx);
+  } // if ( server.hasArg("broker_data") )
   else
   {
     server.send(200, "text/html", htmlBody);
@@ -159,13 +240,21 @@ void handle_root(void)
 //******************************************************************************
 void setup_access_point(void)
 {
-  // delete old config
-  // WiFi.disconnect(true);
-  WiFi.mode(WIFI_AP);
-  WiFi.softAP(ACCESS_POINT_NAME, ACCESS_POINT_PASS);
+  WiFi.softAPmacAddress(mac);
+  macID =  String(mac[WL_MAC_ADDR_LENGTH - 2], HEX) +
+           String(mac[WL_MAC_ADDR_LENGTH - 1], HEX);
+  macID.toUpperCase();
+  DeviceNameString = "NODE_" + macID;
+//  char DeviceNameChar[DeviceNameString.length() + 1];
+  DeviceNameString.toCharArray(DeviceNameChar, DeviceNameString.length() + 1);
+  Serial.print("Connect to network: ");
+  Serial.println(DeviceNameChar);
+
+  WiFi.softAP(DeviceNameChar, ACCESS_POINT_PASS);
+
   IPAddress apip = WiFi.softAPIP();
 #if DEBUG
-  Serial.print("visit: ");
+  Serial.print("Visit: ");
   Serial.println(apip);
 #endif
   server.on("/", handle_root);
@@ -243,12 +332,12 @@ void eeprom_write(char *writeData, int address)
 // Input: void
 // Return: void
 //******************************************************************************
-void eeprom_clear(void)
+void eeprom_clear(uint8_t from, uint8_t to)
 {
 #if DEBUG
   Serial.println(F("Clearing EEPROM."));
 #endif
-  for (int i = 0 ; i < 64; i++)
+  for (uint8_t i = from ; i <= to; i++)
   {
     EEPROM.write(i, 0);
 #if DEBUG
@@ -272,6 +361,8 @@ void hardware_init(void)
 {
   delay(2000); // Let the CPU "wake up" a bit. 2s
   WiFi.disconnect(true);
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.onEvent(wifi_event); // setup event function to handle wifi events
   // Set LEDs pins as outputs
   pinMode(RED_LED, OUTPUT);
   pinMode(YELLOW_LED, OUTPUT);
@@ -309,7 +400,6 @@ void buffer_clear(char clearBuff[], int buffSize)
 
 void led_wifi_on(void)
 {
-  led_ap_off();
   digitalWrite(GREEN_LED, HIGH);
 }
 void led_wifi_off(void)
@@ -318,7 +408,6 @@ void led_wifi_off(void)
 }
 void led_ap_on(void)
 {
-  led_wifi_off();
   digitalWrite(YELLOW_LED, HIGH);
 }
 void led_ap_off(void)
