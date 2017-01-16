@@ -15,6 +15,13 @@ void led_wifi_off(void);
 void led_ap_on(void);
 void led_ap_off(void);
 
+//******************************************************************************
+// MQTT CONNECT
+// Name: mqtt_connect()
+// Desc: Function for connection to mqtt broker
+// Input: void
+// Return: void
+//******************************************************************************
 void mqtt_connect(void)
 {
   // Loop until we're reconnected
@@ -23,47 +30,91 @@ void mqtt_connect(void)
     #if DEBUG
     Serial.print("Attempting MQTT connection...");
     #endif
+    sprintf(topicName, "sensor/%s", mainTopicChar);
+    strcat(topicName, "/state");
     // Attempt to connect
-    if (client.connect(DeviceNameChar))
+    if (mqttClient.connect(DeviceNameChar, topicName, WILL_QOS, WILL_RETAIN, WILL_MESSAGE))
     {
+      IPAddress ip_addr = WiFi.localIP();
+      sprintf(ipMessage, "%d.%d.%d.%d", ip_addr[0], ip_addr[1], ip_addr[2], ip_addr[3]);
       #if DEBUG
       Serial.println("connected");
       #endif
       // Once connected, publish an announcement...
-      client.publish("outTopic","hello world");
+      sprintf(topicName, "sensor/%s", mainTopicChar);
+      strcat(topicName, "/state");
+      mqttClient.publish(topicName, CLIENT_ON, MESSAGE_RETAIN_ON);
+
+      sprintf(topicName, "sensor/%s", mainTopicChar);
+      strcat(topicName, "/info/ip");
+      mqttClient.publish(topicName, ipMessage, MESSAGE_RETAIN_ON);
+
+      sprintf(topicName, "sensor/%s", mainTopicChar);
+      strcat(topicName, "/info/type");
+      mqttClient.publish(topicName, DEVICE_TYPE);
       // ... and resubscribe
-      client.subscribe("inTopic");
-    } else {
+      // mqttClient.subscribe("inTopic");
+      // prepare output topic
+      sprintf(outputTopic, "sensor/%s", mainTopicChar);
+      strcat(outputTopic, "/output");
+    }
+    else
+    {
       Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
+      Serial.print(mqttClient.state());
+      Serial.println(" try again in 3 seconds");
       // Wait 5 seconds before retrying
-      delay(5000);
+      delay(3000);
     }
   }
 }
 
-void callback(char* topic, byte* payload, unsigned int length) {
+//******************************************************************************
+// CALLBACK
+// Name: callback()
+// Desc: callback function for mqtt incomming messages
+// Input: char* topic, byte* payload, unsigned int length
+// Return: void
+//******************************************************************************
+void callback(char* topic, byte* payload, unsigned int length)
+{
   Serial.print("Message arrived [");
   Serial.print(topic);
   Serial.print("] ");
-  for (int i=0;i<length;i++) {
+  for (int i=0;i<length;i++)
+  {
     Serial.print((char)payload[i]);
   }
   Serial.println();
 }
 
+//******************************************************************************
+// CALLBACK
+// Name: setup_mqtt()
+// Desc: Setting up the mqtt
+// Input: void
+// Return: void
+//******************************************************************************
 uint8_t setup_mqtt(void)
 {
   eeprom_read(BROKER_IP_START, broker);
-  if ( '\0' != broker ) {
+  if ( '\0' != broker )
+  {
     mqttClient.setServer(broker, MQTT_BROKER_PORT);
-    //    mqttClient.setCallback(callback);
+    mqttClient.setCallback(callback);
 #if DEBUG
     Serial.print("MQTT broker set up. IP: ");
     Serial.println(broker);
 #endif
   }
+  String mainTopic =   String(mac[WL_MAC_ADDR_LENGTH - 6], HEX) +
+                String(mac[WL_MAC_ADDR_LENGTH - 5], HEX) +
+                String(mac[WL_MAC_ADDR_LENGTH - 4], HEX) +
+                String(mac[WL_MAC_ADDR_LENGTH - 3], HEX) +
+                String(mac[WL_MAC_ADDR_LENGTH - 2], HEX) +
+                String(mac[WL_MAC_ADDR_LENGTH - 1], HEX);
+  mainTopic.toUpperCase();
+  mainTopic.toCharArray(mainTopicChar, 32);
 }
 
 //******************************************************************************
@@ -96,11 +147,6 @@ uint8_t wifi_connect(void)
     }
     // attempt to connect to Wifi network.
     WiFi.begin(ssid, pass);
-//    while (WiFi.status() != WL_CONNECTED)
-//    {
-//      digitalWrite(GREEN_LED, !digitalRead(GREEN_LED));
-//      delay(200);
-//    } // while (WiFi.status() != WL_CONNECTED)
   } // if ('\0' != ssid)
 }
 
@@ -136,7 +182,6 @@ void wifi_event(WiFiEvent_t event)
       Serial.println(WiFi.localIP());
 #endif
       led_wifi_on();
-      wifiTimeoutEvent = 0; // Clear wifi timeout for next use
       break;
     case WIFI_EVENT_STAMODE_DHCP_TIMEOUT: // event = 4
 #if DEBUG

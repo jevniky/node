@@ -3,6 +3,8 @@
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
 #include <PubSubClient.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 
 #include "config.h"
 #include "functions.h"
@@ -13,17 +15,35 @@ void setup()
   setup_access_point();
   wifi_connect();
   setup_mqtt();
+  sensors.begin();
 } // setup()
 
 void loop()
 {
   server.handleClient();
-  currentMillis = millis();
 
-  if (currentMillis - previousMillis >= interval && WiFi.status() != WL_CONNECTED )
+  currentMillisLed = millis();
+  if (currentMillisLed - previousMillisLed >= intervalLed && WiFi.status() != WL_CONNECTED )
   {
-    // save the last time you blinked the LED
-    previousMillis = currentMillis;
+    previousMillisLed = currentMillisLed;
     digitalWrite(GREEN_LED, !digitalRead(GREEN_LED));
   }
+
+  if (!mqttClient.connected() && WL_CONNECTED == WiFi.status())
+  {
+    mqtt_connect();
+  }
+
+  currentMillisTemp = millis();
+  if (currentMillisTemp - previousMillisTemp >= intervalTemp && WL_CONNECTED == WiFi.status() )
+  {
+    previousMillisTemp = currentMillisTemp;
+    sensors.requestTemperatures(); // Send the command to get temperatures
+    Serial.print("Temperature is: ");
+    Serial.println(sensors.getTempCByIndex(0));
+    temp = sensors.getTempCByIndex(0);
+    dtostrf(temp, 5, 2, tempBuff);
+    mqttClient.publish(outputTopic, tempBuff);
+  }
+  mqttClient.loop();
 }
